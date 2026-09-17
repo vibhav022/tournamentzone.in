@@ -8,7 +8,7 @@ import {razor,signature,confirmPayment} from '../lib/payments.mjs';
 const json=(res,status,data)=>{res.writeHead(status,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify(data));};
 async function readBody(req){let raw='';for await(const chunk of req){raw+=chunk;if(Buffer.byteLength(raw)>16000)throw fail(413,'Request too large.');}return raw;}
 async function owned(body){if(!body.reference||!body.access)throw fail(400,'Registration reference and access code are required.');const [r]=await sql('SELECT * FROM registrations WHERE reference=$1 AND access_hash=$2',[body.reference,hash(body.access)]);if(!r)throw fail(404,'Registration not found. Check the reference and access code.');return r;}
-const safeRow=r=>({reference:r.reference,name:r.name,status:r.status,amount:Number(r.amount),order_id:r.order_id,created_at:r.created_at});
+const safeRow=(r,chessUrl='')=>({reference:r.reference,name:r.name,status:r.status,amount:Number(r.amount),order_id:r.order_id,created_at:r.created_at,...(['paid','refunded'].includes(r.status)&&chessUrl?{chess_url:chessUrl}:{})});
 const audit=(action,target)=>sql('INSERT INTO audit_log(action,target) VALUES($1,$2)',[action,target||null]);
 export default async function handler(req,res){
  res.setHeader('Cache-Control','no-store');res.setHeader('X-Content-Type-Options','nosniff');
@@ -19,7 +19,7 @@ export default async function handler(req,res){
   res.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});return res.end(await readFile(new URL(`../views/${view}.html`,import.meta.url),'utf8'));
  }
  if(req.method==='GET'&&route==='config'){
-  try {const c=await config();return json(res,200,{...c,fee_paise:Number(c.fee_paise),payment_ready:!!(process.env.RAZORPAY_KEY_ID&&process.env.RAZORPAY_KEY_SECRET&&process.env.RAZORPAY_WEBHOOK_SECRET&&process.env.APP_URL),configured:true});}
+  try {const c=await config();return json(res,200,{...c,chess_url:'',fee_paise:Number(c.fee_paise),payment_ready:!!(process.env.RAZORPAY_KEY_ID&&process.env.RAZORPAY_KEY_SECRET&&process.env.RAZORPAY_WEBHOOK_SECRET&&process.env.APP_URL),configured:true});}
   catch{return json(res,200,{title:'Indore Campus Chess Open',fee_paise:5000,status:'draft',starts_at:null,format:'Format and time control to be announced',contact_email:'',organiser_name:'',chess_url:'',payment_ready:false,configured:false});}
  }
  if(req.method==='GET'&&route==='admin/data'){
@@ -71,12 +71,12 @@ export default async function handler(req,res){
  if(route==='verify'){
   await rate(req,'verify',40);const r=await owned(body);
   if(body.razorpay_order_id!==r.order_id||!signature(`${r.order_id}|${body.razorpay_payment_id}`,body.razorpay_signature,process.env.RAZORPAY_KEY_SECRET))throw fail(400,'Payment verification failed.');
-  await confirmPayment(r,body.razorpay_payment_id);return json(res,200,{registration:safeRow(await owned(body))});
+  await confirmPayment(r,body.razorpay_payment_id);const verified=await owned(body),settings=await config();return json(res,200,{registration:safeRow(verified,settings.chess_url)});
  }
  if(route==='status'){
   await rate(req,'status',50);let r=await owned(body);
   if(r.order_id&&r.status==='pending'){const payments=await razor(`orders/${encodeURIComponent(r.order_id)}/payments`);const paid=payments.items?.find(p=>p.status==='captured');if(paid){await confirmPayment(r,paid.id);r=await owned(body);}}
-  return json(res,200,{registration:safeRow(r)});
+  const settings=await config();return json(res,200,{registration:safeRow(r,settings.chess_url)});
  }
  if(route.startsWith('admin/')||route==='logout'){
   const s=await session(req,true);

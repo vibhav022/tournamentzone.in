@@ -93,3 +93,4 @@
   .prize{flex-basis:82vw}
   .details-grid>div{padding-left:61px}
 }
+.chess-access{margin-top:1rem;padding:1rem;border:1px solid rgba(170,130,235,.55);border-radius:14px;background:linear-gradient(135deg,rgba(155,117,221,.16),rgba(24,24,32,.72));}.chess-access p{margin:.65rem 0;color:var(--text);}.chess-access small{display:block;margin-top:.65rem;color:var(--muted);}.chess-access .full{width:100%;justify-content:center;}
